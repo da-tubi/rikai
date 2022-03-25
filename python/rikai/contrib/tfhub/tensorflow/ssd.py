@@ -19,6 +19,9 @@ https://arxiv.org/abs/1512.02325
 
 from typing import Any, Callable, Dict
 
+from rikai.mixin import Pretrained
+from rikai.spark.sql.codegen.dummy import DummyModelSpec
+from rikai.spark.sql.model import ModelSpec
 from rikai.tensorflow.models import TensorflowModelType
 from rikai.types.geometry import Box2d
 
@@ -26,7 +29,20 @@ HUB_URL = "https://tfhub.dev/tensorflow/ssd_mobilenet_v2/2"
 TF_HUB_URL = "tfhub:///tensorflow/ssd_mobilenet_v2/2"
 
 
-class SSDModelType(TensorflowModelType):
+class SSDModelType(TensorflowModelType, Pretrained):
+    def pretrained_model(self) -> Any:
+        import onnx
+        from onnx_tf.backend import prepare
+        onnx_m = onnx.load("/tmp/ssd-12.onnx")
+        return prepare(onnx_m)
+
+    def load_model(self, spec: ModelSpec, **kwargs):
+        if isinstance(spec, DummyModelSpec):
+            self.model = self.pretrained_model()
+            self.spec = spec
+        else:
+            return super().load_model(spec, **kwargs)
+
     def schema(self) -> str:
         return (
             "array<struct<detection_boxes:box2d,"
@@ -44,6 +60,8 @@ class SSDModelType(TensorflowModelType):
             self.model is not None
         ), "model has not been initialized via load_model"
         results = []
+        results = self.model.run(images)
+        print(results)
         for image in images:
             # one image have the shape (x,x,3), but, input needs (1,x,x,3)
             # get more details from the doc here
